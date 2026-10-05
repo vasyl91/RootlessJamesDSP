@@ -17,6 +17,17 @@ android {
     compileSdk = AndroidConfig.compileSdk
     project.setProperty("archivesBaseName", "RootlessJamesDSP-v${AndroidConfig.versionName}")
 
+    signingConfigs {
+        // Only used by the "fyt" flavor (standard Android platform key, password "android").
+        // All other variants keep the original behavior (default debug keystore).
+        create("fyt") {
+            storeFile = file("src/fyt/androidkeystore.jks")
+            storePassword = "android"
+            keyAlias = "android"
+            keyPassword = "android"
+        }
+    }
+
     defaultConfig {
         targetSdk = AndroidConfig.targetSdk
         versionCode = AndroidConfig.versionCode
@@ -77,6 +88,8 @@ android {
     productFlavors {
         create("fdroid") {
             dimension = "dependencies"
+            // Keep the IDE's default build variant as in the original repo (pluginFdroidDebug)
+            isDefault = true
             buildConfigField("boolean", "FOSS_ONLY", "true")
             android.defaultConfig.externalNativeBuild.cmake.arguments += "-DNO_CRASHLYTICS=1"
         }
@@ -106,8 +119,22 @@ android {
             buildConfigField("boolean", "ROOTLESS", "false")
             buildConfigField("boolean", "PLUGIN", "false")
         }
+        create("fyt") {
+            dimension = "version"
+
+            // Root build signed with the system key (sharedUserId=android.uid.system, see src/fyt)
+            manifestPlaceholders["label"] = "JamesDSP"
+            project.setProperty("archivesBaseName", "JamesDSP-v${AndroidConfig.versionName}-${AndroidConfig.versionCode}")
+            applicationId = "james.dsp"
+            AndroidConfig.minSdk = 26
+            minSdk = AndroidConfig.minSdk
+            buildConfigField("boolean", "ROOTLESS", "false")
+            buildConfigField("boolean", "PLUGIN", "false")
+            signingConfig = signingConfigs.getByName("fyt")
+        }
         create("plugin") {
             dimension = "version"
+            isDefault = true
 
             AndroidConfig.minSdk = 26
             minSdk = AndroidConfig.minSdk
@@ -119,6 +146,11 @@ android {
     sourceSets {
         // Use different app icon for non-release builds
         getByName("debug").res.srcDirs("src/debug/res")
+    }
+
+    // The fyt flavor is a root build: reuse the root flavor sources
+    sourceSets.getByName("fyt") {
+        kotlin.directories.add("src/root/java")
     }
 
     // Export multiple CPU architecture split apks
@@ -172,6 +204,15 @@ afterEvaluate {
 
     getTasksByName("assembleRootlessFullPreview", false).firstOrNull()?.finalizedBy("uploadCrashlyticsSymbolFileRootlessFullRelease")
     getTasksByName("assembleRootFullPreview", false).firstOrNull()?.finalizedBy("uploadCrashlyticsSymbolFileRootFullRelease")
+}
+
+// The buildType-level signingConfig overrides the flavor one, so force the system key for every fyt variant
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        if (variant.productFlavors.any { it.second == "fyt" }) {
+            variant.signingConfig.setConfig(android.signingConfigs.getByName("fyt"))
+        }
+    }
 }
 
 dependencies {
@@ -240,6 +281,7 @@ dependencies {
 
     // Root APIs
     "rootImplementation"("com.github.topjohnwu.libsu:core:5.0.4")
+    "fytImplementation"("com.github.topjohnwu.libsu:core:5.0.4")
 
     // Hidden APIs
     implementation("dev.rikka.tools.refine:runtime:${AndroidConfig.rikkaRefineVersion}")
